@@ -1,0 +1,321 @@
+---
+title: "Sampling in R"
+output: html_notebook
+---
+
+### Libraries and datasets.
+
+```{r}
+library(dplyr)
+library(fst)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+attrition_pop <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/attrition.fst")
+spotify_population <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/spotify_2000_2020.fst")
+coffee_pop <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/coffee_ratings_full.fst")
+```
+## Simple Sampling with dplyr
+
+#### Exploring Song dataset from Spotify
+
+```{r}
+head(spotify_population)
+```
+
+Above dataset has 20 columns which include different information about 41,656 different songs. Let's create a sample of 1000 songs.
+
+```{r}
+spotify_sample <- spotify_population %>%
+  slice_sample(n = 1000)
+spotify_sample
+```
+
+Let's calculate mean for both spotify_population(full dataset) and spotify_sample(sample of the population)
+
+```{r}
+mean_dur_pop <- spotify_population %>% 
+  summarize(mean_dur = mean(duration_minutes))
+mean_dur_samp <- spotify_sample %>% 
+  summarize(mean_dur = mean(duration_minutes))
+
+mean_dur_pop
+mean_dur_samp
+```
+
+The mean duration of songs in the sample is similar but mot identical to the mean duration of songs in the whole population.
+
+dplyr's slice_sample is use to sample a dataframe, however when a vector(or a column) is to be sampled, base-R is used.
+Let's sample loudness column of dataframe.
+
+```{r}
+loudness_pop <- spotify_population$loudness
+loudness_samp <- sample(loudness_pop, size = 100)
+
+# Calculate Standard deviation for population and sample
+
+sd_loudness_pop <- sd(loudness_pop)
+sd_loudness_samp <- sd(loudness_samp)
+
+sd_loudness_pop
+sd_loudness_samp
+```
+Let's Visualize acousticness of population and sample.
+
+```{r}
+ggplot(spotify_population, aes(acousticness)) + 
+  geom_histogram(binwidth = 0.01)
+
+# Add x-axis limits from zero to 1 for a comparable plot
+ggplot(spotify_sample, aes(acousticness)) + 
+  geom_histogram(binwidth = 0.01) + 
+  xlim(0, 1)
+```
+**Generating Random Numbers.** that follows a statistical distribution.
+
+```{r}
+randoms <- data.frame(
+  uniform = runif(5000, -3, 3), 
+  normal = rnorm(5000, 5, 2)
+)
+
+ggplot(randoms, aes(uniform)) + geom_histogram() + ggtitle("Random Numbers with Uniform distribution")
+ggplot(randoms, aes(normal)) + geom_histogram() + ggtitle("Random Numbers with Normal distribution")
+```
+
+### Types of Random Sampling
+
+Dataset: Synthetic(fictional) employee attrition from IBM.
+
+```{r}
+head(attrition_pop)
+```
+
+
+**Simple Random Sampling**
+
+It involves picking rows at random, one at a time, where each row has the same chance of being picked as any other.
+
+Let's generate a Simple Random Sample from attrition population
+
+```{r}
+set.seed(123)
+attrition_samp <- attrition_pop %>% 
+  rowid_to_column() %>%
+  slice_sample(n = 200)
+attrition_samp
+```
+**Systematic Sampling**
+
+Systematic Sampling avoid randomness. It pick rows from the population at regular intervals.
+
+```{r}
+# Set the interval
+sample_size <- 200
+pop_size <- nrow(attrition)
+interval <- pop_size %% sample_size
+
+# Get row indexes
+row_indexes <- seq_len(sample_size) * interval
+
+attrition_sys_samp <- attrition %>% 
+  rowid_to_column() %>%
+  slice(row_indexes)
+
+attrition_sys_samp
+```
+If the data is sorted or if there is some sort of pattern or meaning behind the row order, then the Systematic Sampling may not be representative of the whole population. This problem can be solved by shuffling the rows, but then systematic sampling is equal to simple random sampling.
+
+```{r}
+# Add a row ID column to attrition_pop
+attrition_pop_id <- attrition_pop %>% rowid_to_column()
+
+# Plot YearsAtCompany vs. rowid
+ggplot(attrition_pop_id, aes(rowid, YearsAtCompany)) +
+  geom_point() + 
+  geom_smooth()
+```
+Let's shuffle and visualize
+
+```{r}
+attrition_shuffled <- attrition_pop %>% 
+  slice_sample(prop = 1) %>% 
+  rowid_to_column()
+
+ggplot(attrition_shuffled, aes(rowid, YearsAtCompany)) + 
+  geom_point() + 
+  geom_smooth()
+```
+
+**Proportional Stratified Sampling**
+
+Proportional Stratified Sampling results in subgroup sizes within the population. It is equivalent to performing a simple random sampling on each subgroup.
+
+```{r}
+attrition_pop %>% 
+  # Count the Employees by Education level, sorting by n
+  count(Education, sort = TRUE) %>% 
+  mutate(percent = 100 * n / sum(n))
+
+# Use proportional stratified sampling to get 40% of each Education group
+attrition_strat <- attrition_pop %>% 
+  group_by(Education) %>% 
+  slice_sample(prop = 0.4) %>%
+  ungroup()
+attrition_strat
+
+# Get the counts and percent
+education_counts_pop <- attrition_strat %>%
+  count(Education, sort = TRUE) %>%
+  mutate(percent = 100 * n / sum(n))
+education_counts_pop
+```
+
+If one subgroup is larger than another subgroup in the population, and we don't want to reflect the same on our analysis then we need to use equal counts stratified sampling.
+
+```{r}
+attrition_eq <- attrition_pop %>% 
+  group_by(Education) %>% 
+  slice_sample(n = 30) %>% 
+  ungroup()
+attrition_eq
+
+# Get the counts and percents
+education_counts_eq <- attrition_eq %>% 
+  count(Education, sort = TRUE) %>% 
+  mutate(percent = 100 * n / sum(n))
+
+education_counts_eq
+```
+
+**Weighted Sampling**
+
+Stratified Sampling provides rules about the probability of picking rows from dataset at the subgroup level. A generalization of this is weighted sampling, which lets us specify rules about the probability of picking rows at the row level. Probability of picking any given row is proportional to the weight value for that row.
+
+```{r}
+ggplot(attrition_pop, aes(YearsAtCompany)) + geom_histogram(binwidth = 1)
+
+attrition_weight <- attrition_pop %>% 
+  slice_sample(n = 400, weight_by = YearsAtCompany)
+
+ggplot(attrition_weight, aes(YearsAtCompany)) + geom_histogram(binwidth = 1)
+```
+*The weighted sample mean is higher than the population mean. It shows that weighted simple random sample is biased.*
+
+**Cluster Sampling**
+
+Cluster Sampling is a to-stage sampling technique that is closely related to stratified sampling. First, a subgroups are randomly sampled, then for each subgroup, sample rows are randomly sampled.
+
+Let's explore the JobRole column of the attrition dataset. Each JobRole can be assumed as a subgroup of total poulation of employees.
+
+```{r}
+job_roles_pop <- unique(attrition_pop$JobRole)
+job_roles_samp <- sample(job_roles_pop, size = 4)
+
+attrition_filtered <- attrition_pop %>% 
+  filter(JobRole %in% job_roles_samp)
+
+attrition_clus <- attrition_filtered %>% 
+  group_by(JobRole) %>% 
+  slice_sample(n = 10)
+
+attrition_clus
+```
+**Compare Point Estimates for different types of Sampling.**
+
+Let's compare point estimates for different types of samplings applied to RelationshipSatisfaction column of attrition dataset.
+We will calculate how satisfaction with the company affects whether or not the employee leaves the company.
+
+```{r}
+# Perform Simple Random Sampling to get 0.25 of population
+attrition_srs <- attrition_pop %>% 
+  slice_sample(prop = 0.25)
+
+# Perform Stratified sampling to get 0.25 of each relationship group
+attrition_strat <- attrition_pop %>% 
+  group_by(RelationshipSatisfaction) %>%
+  slice_sample(prop = 0.25) %>%
+  ungroup()
+
+# Perform Cluster Sampling to get 0.25 of randomly sampled group
+satisfaction_unique <- unique(attrition_pop$RelationshipSatisfaction)
+satisfaction_samp <- sample(satisfaction_unique, size = 2)
+attrition_clust <- attrition_pop %>% 
+  filter(RelationshipSatisfaction %in% satisfaction_samp) %>%
+  group_by(RelationshipSatisfaction) %>% 
+  slice_sample(n = nrow(attrition_pop) / 4) %>%
+  ungroup()
+
+# Summary Statistics
+
+mean_attrition_pop <- attrition_pop %>%
+  group_by(RelationshipSatisfaction) %>%
+  summarize(mean_atrition = mean(Attrition == "Yes"))
+mean_attrition_pop
+
+mean_attrition_srs <- attrition_srs %>%
+  group_by(RelationshipSatisfaction) %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+mean_attrition_srs
+
+mean_attrition_strat <- attrition_strat %>% 
+  group_by(RelationshipSatisfaction) %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+mean_attrition_strat
+
+mean_attrition_clust <- attrition_clust %>%
+  group_by(RelationshipSatisfaction) %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+mean_attrition_clust
+```
+The results are approximately same for all three samplings except cluster sample will return the results only for the groups randomly selected.
+ 
+### Calculating Relative Errors
+
+The size of the sample selected affects how accurately the point estimates reflects the corresponding population parameter.
+The most common metric for assessing accuracy is relative error. It is the absolute difference between the population parameter and the point estimate, all divided by the population parameter.
+
+```{r}
+mean_attrition_pop <- attrition_pop %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+
+# Generate a simple random sample of 10 rows from attrition dataset
+attrition_srs10 <- attrition_pop %>%
+  slice_sample(n = 10)
+mean_attrition_srs10 <- attrition_srs10 %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+
+rel_error_pct10 <- 100 * abs(mean_attrition_pop - mean_attrition_srs10) / mean_attrition_pop
+rel_error_pct10
+
+# Generate a simple random sample of 100 rows and calculate relative error percent
+attrition_srs100 <- attrition_pop %>% 
+  slice_sample(n = 100)
+mean_attrition_srs100 <- attrition_srs100 %>% 
+  summarize(mean_attrition = mean(Attrition == "Yes"))
+
+rel_error_pct100 <- 100 * abs(mean_attrition_pop - mean_attrition_srs100)/ mean_attrition_pop
+rel_error_pct100
+```
+
+### Replicating Samples
+
+When a point estimate is calculated, its value depends on the rows that were included in the sample. It means there is some randomness in the answer. In order to quantify the variation caused by the randomness, many samples can be created and their sample statistic can be calculated.
+
+```{r}
+mean_attritions <- replicate(
+  n = 500, 
+  attrition_pop %>% 
+    slice_sample(n = 20) %>% 
+    summarize(mean_attrition = mean(Attrition == "Yes")) %>%
+    pull(mean_attrition)
+)
+sample_means <- tibble(
+  sample_mean = mean_attritions
+)
+ggplot(sample_means, aes(sample_mean)) + geom_histogram(binwidth = 0.05)
+```
+*As Sample size increases, on average each sample mean has a lower relative error compared to the population mean, thus reducing the range of distribution.*
+

@@ -1,0 +1,307 @@
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+```{r}
+head(food_consumption)
+```
+
+
+Compute measures of center to compare food consumption in the US and Belgium.
+
+
+```{r}
+belgium_consumption <- food_consumption %>%
+  filter(country == "Belgium")
+usa_consumption <- food_consumption %>%
+  filter(country == "USA")
+mean(usa_consumption$consumption)
+median(usa_consumption$consumption)
+mean(belgium_consumption$consumption)
+median(belgium_consumption$consumption)
+```
+Compare Mean vs Median.
+```{r}
+food_consumption %>%
+  filter(food_category == "rice") %>%
+  ggplot(aes(co2_emission)) + geom_histogram()
+```
+Quantiles are a great way of summarizing numerical data since they can be used to measure center and spread, as well as get a sense of where a data points stands in relation to the rest of the data set.
+```{r}
+quantile(food_consumption$co2_emission)
+```
+Variance and Standard Deviation are two of the most common ways to measure the spread of variable.
+```{r}
+food_consumption %>%
+  group_by(food_category) %>%
+  summarize(var_co2 = var(co2_emission), sd_co2 = sd(co2_emission))
+ggplot(food_consumption, aes(co2_emission)) + geom_histogram() + facet_wrap(~ food_category)
+
+```
+Finding Outliers using IQR. Outlier : Value < Q1 - 1.5 * IQR or value > Q3 + 1.5 * IQR
+```{r}
+emissions_by_country <- food_consumption %>%
+  group_by(country) %>%
+  summarize(total_emission = sum(co2_emission))
+
+q1 <- quantile(emissions_by_country$total_emission, 0.25)
+q3 <- quantile(emissions_by_country$total_emission, 0.75)
+iqr <- q3 - q1
+lower <- q1 - 1.5 * iqr
+upper <- q3 + 1.5 * iqr
+
+emissions_by_country %>%
+  filter(total_emission > upper | total_emission < lower)
+emissions_by_country
+```
+Calculating Probabilities
+
+```{r}
+head(amir_deals)
+```
+
+
+```{r}
+# Count the deals for each product
+amir_deals %>% count(product) %>% mutate(prob = n / sum(n))
+```
+Sampling Deals
+```{r}
+# Sample 5 deals without replacement
+amir_deals %>% sample_n(5)
+amir_deals %>% sample_n(5, replace = TRUE)
+```
+
+Creating a probability distribution
+
+```{r}
+# Create a Histogram
+ggplot(amir_deals, aes(num_users)) + geom_histogram()
+```
+```{r}
+# Creating a Probability distribution
+size_distribution <- amir_deals %>%
+  count(num_users) %>%
+  mutate(probability = n / sum(n))
+
+# Calculate probability of picking group of 8 number of users or More
+size_distribution %>%
+  filter(num_users >= 8) %>%
+  summarize((prob_8_more = sum(probability)))
+```
+The sales software used at company is set to automatically back itself, but no none knows exactly what time backups happen. However, back up happens exactly every 30 minutes. Amir comes back from sales meetings at random times to update the data on the client he just met with. He wants to know how long he'll have to wait for his newly-entered data to get backed-up. Using continuous uniform distribution model the solution.
+
+```{r}
+# Min and max wait times for back-up that happens every 30 min.
+min <- 0
+max <- 30
+# Calculate Probability of waiting less than 5 mins
+prob_less_than_5 <- punif(5, min = min, max = max)
+prob_greater_than_5 <- 1 - punif(5, min = min, max = max)
+prob_between_10_20 <- punif(20, min = min, max = max) - punif(10, min = min, max = max)
+prob_less_than_5
+prob_greater_than_5
+prob_between_10_20
+```
+Simulating wait times
+```{r}
+# Create a tibble for wait times
+wait_time <- tibble(simulation_nb = 1:1000)
+# Generate 1000 wait time between 0 and 30 mins
+wait_time %>%
+  mutate(time = runif(1000, min = 0, max = 30)) %>%
+  ## Create a histogram
+  ggplot(aes(time)) + geom_histogram(bins = 30)
+```
+Assume that Amir usually works on 3 deals per week, and overall, he wins 30% of deals he works on. Each deal has a binary outcome, either lost or won, so deals can be modeled with a binomial distribution.
+```{r}
+# Simulate a single deal
+rbinom(1, 1, 0.3)
+# Simulate 1 week of 3 deals
+rbinom(1, 3, 0.3)
+# Simulate 52 weeks of 3 deals
+deals <- rbinom(52, 3, 0.3)
+# Calculate mean deals won per week
+mean(deals)
+```
+Calculating Binomial Probabilities
+```{r}
+# Probability of closing 3 out of 3 deals
+dbinom(3, 3, 0.3)
+# Probability of closing <= 1 deal out of 3 deals
+pbinom(1, 3, 0.3)
+# Probability of closing > 1 deal out of 3 deals
+pbinom(1, 3, 0.3, lower.tail = FALSE)
+```
+Now Amir want to know how many deals he can expect to close each week if his win rate changes. Expected value of a binomial distribution can be obtained by n*p
+```{r}
+# Expected number won with 30% win rate
+3 * 0.3
+# Expected number won with 25 % win rate
+3 * 0.25
+# Expected number won with 35 % win rate
+3 * 0.35
+```
+Distribution of Amir's sales.
+```{r}
+# Determining distribution of amount variable using Histogram
+ggplot(amir_deals, aes(amount)) + geom_histogram(bins = 10)
+```
+The above distribution closely follows a Normal distribution.
+Let's calculate some probabilities based on above distribution.
+```{r}
+# Probability of deal < 7500
+pnorm(7500, mean = 5000, sd = 2000)
+# Probability of deal > 1000
+pnorm(1000, mean = 5000, sd = 2000, lower.tail = FALSE)
+# Probability of deal between 3000 and 7000
+pnorm(7000, mean = 5000, sd = 2000) - pnorm(3000, mean = 5000, sd = 2000)
+# Calculate amount that 75% of deals will be more than
+qnorm(0.75, mean = 5000, sd = 2000, lower.tail = FALSE)
+```
+The Central Limit Theorem states that a sampling distribution of a sample
+statistic approaches the normal distribution as you take more samples, no matter
+the original distribution being sampled for.
+
+```{r}
+ggplot(amir_deals, aes(num_users)) + geom_histogram(bins = 10)
+# Sample 20 num_users with replacement from amir_deals
+sample(amir_deals$num_users, 20, replace = TRUE) %>% mean()
+# Repeat the above 100 times
+sample_means <- replicate(100, sample(amir_deals$num_users, size = 20, replace = TRUE) %>% mean())
+# Create data frame for plotting
+samples <- data.frame(mean = sample_means)
+# histogram of sample means
+ggplot(samples, aes(mean)) + geom_histogram(bins = 10)
+```
+Poisson Distribution
+```{r}
+print("What is the probability that Amir responds to 5 leads in a day, given that he responds to an average of 4?")
+dpois(5, lambda = 4)
+print("Amir's coworker responds to an average of 5.5 leads per day. What is the probability that she answers 5 leads in a day?")
+dpois(5, lambda = 5.5)
+print("What is the probability that Amir responds to 2 or fewer leads in a day?")
+ppois(2, lambda = 4)
+print("What's the probability that Amir responds to more than 10 leads in a day?")
+ppois(10, lambda = 4, lower.tail = FALSE)
+```
+Modeling time between leads
+Probabilities of different amounts of time passing between Amir receiving a lead and sending a response.
+```{r}
+print("What's the probability it takes Amir less than an hour to respond to a lead?")
+pexp(1, rate = 0.4)
+print("What's the probability it takes Amir more than 4 hours to respond to a lead?")
+pexp(4, rate = 0.4, lower.tail = FALSE)
+print("What's the probability it takes Amir 3-4 hours to respond to a lead?")
+pexp(4, 0.4) - pexp(3, 0.4)
+```
+## Correlation
+
+## Dataset: 2019 World Happiness Report
+
+```{r}
+head(world_happiness)
+```
+
+### Examine the relationship between a country's life expectancy and happiness score
+
+```{r}
+# Create a scatterplot of happiness_score vs. life_exp and add a linear trend line
+ggplot(world_happiness, aes(x = life_exp, y = happiness_score)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+# Correlation between life_exp and happiness_score
+cor(world_happiness$life_exp, world_happiness$happiness_score)
+```
+### Examine the relationship between a country's GDP per capita and happiness score.
+
+```{r}
+ggplot(world_happiness, aes(gdp_per_cap, life_exp)) + geom_point()
+cor(world_happiness$gdp_per_cap, world_happiness$life_exp)
+```
+#### Correlation only measures linear relationship.
+
+### Transforming variables
+#### When variables have skewed distributions, they often require a transformation in order to form a linear relationship with another variable so that correlation can be computed.
+
+```{r}
+# Create log of gdp per cap
+world_happiness <- world_happiness %>%
+  mutate(log_gdp_per_cap = log(gdp_per_cap))
+
+# Scatterplot of log_gdp_per_cap vs. happiness_score
+ggplot(world_happiness, aes(x = log_gdp_per_cap, y = happiness_score)) + 
+  geom_point()
+
+# Calculate Correlation
+cor(world_happiness$log_gdp_per_cap, world_happiness$happiness_score)
+```
+#### Does Sugar Improve happiness?
+
+```{r}
+# Scatterplot of grams_sugar_per_day and happiness_score
+ggplot(world_happiness, aes(x = grams_sugar_per_day, y = happiness_score)) + 
+  geom_point()
+
+# Correlation between grams_sugar_per_day and happiness_score
+cor(world_happiness$grams_sugar_per_day, world_happiness$happiness_score)
+```
+#### Based on above plot, increased sugar consumption is associated with a higher happiness score.
+
+## Probability
+
+### Binomial Distribution
+
+#### Simulate coin flips, each with a 30% chance of coming up 1(heads).
+
+```{r}
+# Generate 10 separate random flips with probability .3
+rbinom(10, 1, 0.3)
+# Generate 100 occurences of flipping 10 coins, each with 30% probability
+rbinom(100, 10, 0.3)
+```
+#### Calculate density of a binomial
+
+```{r}
+# Calculate the probability that 2 are heads
+dbinom(2, 10, 0.3)
+# Confirm answer with a simulation
+mean(rbinom(10000, 10, 0.3) == 2)
+```
+#### Calculating cumulative density of a binomial
+
+```{r}
+# What is the probability that at least 5 coins are head?
+1 - pbinom(4, 10, 0.3)
+# Confirm answer with a simulation
+mean(rbinom(10000, 10, 0.3) >= 5)
+```
+#### Simulating Probability of multiple events
+
+```{r}
+# Simulate 100,000 flips of a coin with 40% chance of heads
+A <- rbinom(100000, 1, 0.4)
+# Simulate 100,000 flips of a coin with a 20% chance of heads
+B <- rbinom(100000, 1, 0.2)
+# Simulate 100,000 flips of coin c with 70% chance of head
+C <- rbinom(100000, 1, 0.7)
+# Estimate the probability that all three coins would come up heads.
+mean(A & B & C)
+# Estimate the probability that all A or B or C
+mean(A | B | C)
+```
+#### Suppose there is a coin that is equally likely to be fair (50% heads) or biased (75% heads). The coin is flipped 20 times and 11 heads turn up. How likely is that the coin is fair?
+
+```{r}
+# Simulate 50000 cases of flipping 20 coins from fair and from biased
+fair <- rbinom(50000, 20, .5)
+biased <- rbinom(50000, 20, 0.75)
+# How many fair cases, and how many biased, led to exactly 11 heads?
+fair_11 <- sum(fair == 11)
+biased_11 <- sum(biased == 11)
+# Find the fair coins that came up heads 11 times that were fair coins.
+fair_11/(fair_11 + biased_11)
+```
+#### Above probability is known as posterior probability that a coin with 11/20 is fair.
+
+

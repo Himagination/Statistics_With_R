@@ -1,0 +1,772 @@
+---
+title: "Regression"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(fst)
+library(broom)
+library(ggfortify)
+library(yardstick)
+library(moderndive)
+```
+
+## Simple Linear Regression
+
+### Datasets Required.
+
+```{r}
+taiwan_real_estate <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/taiwan_real_estate.fst")
+ad_conversions <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/ad_conversion.fst")
+churn <- read.fst("D:/DataCamp/Statistician_R/Statistics_With_R/All_Datasets/churn.fst")
+head(taiwan_real_estate)
+```
+
+Let's look at the relationship between house price per area and the number of nearby convenience stores
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq)) +
+  geom_point(alpha = 0.5) + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+Linear Regression Models always fit a straight line to the data. Straight lines are defined by two properties: Intercept and their slope.
+ggplot displays a linear regression trend line but it doesn't provides access to the intercept and slope.
+
+Run a Linear Regression of price_twd_msq vs n_convenience.
+
+```{r}
+mdl_price_vs_conv <- lm(price_twd_msq ~ n_convenience, data = taiwan_real_estate)
+mdl_price_vs_conv
+```
+Interpretation of Intercept:
+On average, a house with zero convenience stores nearby had a price of 8.2242 TWD per square.
+Interpretation of Slope:
+If number of nearby convenience store is increased by one, then the expected increase in house price is 0.7981 TWD per square meter.
+
+Scatter plots are not fit for categorical variables. Instead, Histogram should be used. Let's visualize the housing price for different age groups.
+
+```{r}
+ggplot(taiwan_real_estate, aes(price_twd_msq)) + 
+  geom_histogram(bins = 10) + 
+  facet_wrap(vars(house_age_years))
+```
+
+Summary statistics also provide a better way to explore categorical variables.
+
+```{r}
+summary_stats <- taiwan_real_estate %>%
+  group_by(house_age_years) %>%
+  summarize(mean_by_group = mean(price_twd_msq))
+summary_stats
+```
+Linear Regression of price_twd_msq vs house_age_years(categorical variable).
+
+```{r}
+mdl_price_vs_age <- lm(price_twd_msq ~ house_age_years, data = taiwan_real_estate)
+mdl_price_vs_age
+```
+Update the model to remove the intercept.
+
+```{r}
+mdl_price_vs_age_no_intercept <- lm(
+  price_twd_msq ~ house_age_years + 0,
+  data = taiwan_real_estate
+)
+mdl_price_vs_age_no_intercept
+```
+Coefficients in above cell are just the mean of each category.
+
+Let's make some prediction of house price for a set of number of convenience store.
+
+```{r}
+# Create a tibble for number of convenience store
+explanatory_data <- tibble(n_convenience = 0:10)
+
+# Make predictions and a column for the same in above tibble.
+prediction_data <- explanatory_data %>% 
+  mutate(
+    price_twd_msq = predict(
+      mdl_price_vs_conv, explanatory_data
+    )
+  )
+prediction_data
+```
+Visualizing Predictions
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) +
+  # Add a point layer of prediction data
+  geom_point(
+    data = prediction_data,
+    color = "yellow"
+  )
+```
+
+Extract Model Elements for mdl_price_vs_conv.
+
+```{r}
+print("Coefficients of model are: ")
+coefficients(mdl_price_vs_conv)
+print("Fitted values of model are: ")
+fitted(mdl_price_vs_conv)
+print("Residuals of model are: ")
+residuals(mdl_price_vs_conv)
+print("Summary of the model: ")
+summary(mdl_price_vs_conv)
+```
+A better extraction using broom.
+
+```{r}
+print("Coefficient-level elements of the model")
+tidy(mdl_price_vs_conv)
+print("Observation-level elements of the model")
+augment(mdl_price_vs_conv)
+print("Model-level elements of the model")
+glance(mdl_price_vs_conv)
+```
+
+### Transforming the explanatory variable.
+
+If there is no straight line relationship between the response variable and the explanatory variable, it is sometimes possible to create using transformation of explanatory variable.
+
+Let's take a look to the distance to the nearest metro station with housing price.
+
+```{r}
+ggplot(taiwan_real_estate, aes(dist_to_mrt_m, price_twd_msq)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Let's transform by taking square root of distance.
+
+```{r}
+ggplot(taiwan_real_estate, aes(sqrt(dist_to_mrt_m), price_twd_msq)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+Run a linear regression model, predict and visualize the results.
+
+```{r}
+mdl_price_vs_dist <- lm(price_twd_msq ~ I(sqrt(dist_to_mrt_m)), data = taiwan_real_estate)
+explanatory_data <- tibble(dist_to_mrt_m = seq(0, 80, 10) ^ 2)
+prediction_data <- explanatory_data %>% 
+  mutate(price_twd_msq = predict(mdl_price_vs_dist, explanatory_data))
+ggplot(taiwan_real_estate, aes(sqrt(dist_to_mrt_m), price_twd_msq)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  geom_point(data = prediction_data, color = "green", size = 5)
+```
+ ### Transforming the response variable
+ 
+The response variable can be transformed too. But an extra step should be added in the end to back transform the predictions.
+ 
+Let's have a look to a new dataset. A digital advertising workflow: spending money to buy ads, and counting how many people see them("impressions").
+
+```{r}
+head(ad_conversions)
+```
+
+Let's plot a scatter plot to determine how many people click on the advertisement after seeing it.
+
+```{r}
+ggplot(ad_conversions, aes(n_impressions, n_clicks)) + 
+  geom_point()+ geom_smooth(method = "lm", se = FALSE)
+```
+
+Let's tranform the resopnse and explanatory variable.
+
+```{r}
+ggplot(ad_conversions, aes(n_impressions ^ 0.25, n_clicks ^ 0.25)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Now the points track the line more closely.
+
+Fit a linear regression model, predict and visualize the results.
+
+```{r}
+mdl_click_vs_impression <- lm(
+  I(n_clicks ^ 0.25) ~ I(n_impressions ^ 0.25), data = ad_conversions
+)
+explanatory_data <- tibble(n_impressions = seq(0, 3e6, 5e5))
+prediction_data <- explanatory_data %>% 
+  mutate(
+    n_clicks_025 = predict(mdl_click_vs_impression, explanatory_data),
+    n_clicks = n_clicks_025 ^ 4
+  )
+ggplot(ad_conversions, aes(n_impressions ^ 0.25, n_clicks ^ 0.25)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_point(data = prediction_data, color = "green")
+```
+### Assessing Model
+
+Let's create few linear regression models from digital advertisement workflow dataset.
+
+```{r}
+mdl_click_vs_impression_orig <- lm(n_clicks ~ n_impressions, data = ad_conversions)
+mdl_click_vs_impression_trans <- lm(
+  I(n_clicks ^ 0.25) ~ I(n_impressions ^ 0.25), data = ad_conversions)
+```
+
+Get the summary of the models.
+
+```{r}
+summary(mdl_click_vs_impression_orig)
+summary(mdl_click_vs_impression_trans)
+```
+**Coefficient of determination** is a measure of how well the linear regression line fits the observed values. For Simple Linear Regression, it is equal to the square of the correlation between the explanatory and response variables.
+
+Get Coefficients of determination.
+
+```{r}
+mdl_click_vs_impression_orig %>%
+  glance(mdl_click_vs_impression_orig) %>% 
+  pull(r.squared)
+mdl_click_vs_impression_trans %>%
+  glance(mdl_click_vs_impression_trans) %>%
+  pull(r.squared)
+```
+**Residual Standard Error (RSE)** is a measure of the typical size of residuals. It's a measure of how badly wrong we can expect the predictions to be.
+
+Get the RSE.
+
+```{r}
+mdl_click_vs_impression_orig %>% 
+  glance(mdl_click_vs_impression_orig) %>% 
+  pull(sigma)
+mdl_click_vs_impression_trans %>%
+  glance(mdl_click_vs_impression_trans) %>% 
+  pull(sigma)
+```
+
+**Diagnostic Plots**
+
+```{r}
+autoplot(
+  mdl_price_vs_conv,
+  which = 1:3,
+  nrow = 3,
+  ncol = 1
+)
+```
+
+**Leverage** measures how unusual or extreme the explanatory variables are for each observation. A high leverage means that the explanatory variable has values that are different to other points in the dataset. In case of Simple Linear Regression Model, where there is only one explanatory value, this typically means values with a very high or low explanatory value.
+
+**Influence** measures how much a model would change if each observation was left out of the model calculations one at a time. It measures how different the prediction line would look if you ran a linear regression on all data points except that point, compared to running a linear regression on the whole dataset.
+The Standard metric for influence is Cook's distance, which calculates influences based on the size of the residual and the leverage of the point.
+
+**Extract leverage and influence**
+
+```{r}
+mdl_price_vs_dist %>%
+  augment() %>% 
+  arrange(desc(.hat)) %>% 
+  head()
+```
+
+Plot the three outlier diagnostics.
+
+```{r}
+autoplot(
+  mdl_price_vs_dist,
+  which = 4:6,
+  nrow = 3,
+  ncol = 1
+)
+```
+## Multiple Linear Regression
+
+Taiwan Real Estate dataset has 3 explanatory variables. Let's create 2 different Linear Regression Model for 2 explanatory variables and 1 model consisting of both variables.
+
+```{r}
+mdl_price_vs_conv <- lm(price_twd_msq ~ n_convenience, data = taiwan_real_estate)
+mdl_price_vs_conv
+mdl_price_vs_age <- lm(price_twd_msq ~ house_age_years + 0, data = taiwan_real_estate)
+mdl_price_vs_age
+mdl_price_vs_both <- lm(price_twd_msq ~ n_convenience + house_age_years + 0, data = taiwan_real_estate)
+mdl_price_vs_both
+```
+Let's visualize each explanatory variable.
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+
+ggplot(taiwan_real_estate, aes(house_age_years, y = price_twd_msq)) + 
+  geom_boxplot()
+```
+
+**The Parallel Slope**
+The two plots above provide very different predictions. One gave a predicted response  that increased linearly with a numeric variable while the other gave a fixed response for each category. The only way to reconcile these two conflicting predictions is to incorporate both explanatory variables in the model at once.
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq, color = house_age_years)) + 
+  geom_point() + 
+  geom_parallel_slopes(se = FALSE)
+```
+Predicting with a parallel slopes.
+
+```{r}
+explanatory_data <- expand_grid(
+  n_convenience = 0:10,
+  house_age_years = unique(taiwan_real_estate$house_age_years)
+)
+prediction_data <- explanatory_data %>%
+  mutate(
+    price_twd_msq = predict(mdl_price_vs_both, explanatory_data)
+  )
+taiwan_real_estate %>%
+  ggplot(aes(n_convenience, price_twd_msq, color = house_age_years)) +
+  geom_point() +
+  geom_parallel_slopes(se = FALSE) +
+  geom_point(data =prediction_data, size = 5, shape = 15)
+```
+
+**Comparing Coefficients of determination.**
+
+```{r}
+mdl_price_vs_conv %>%
+  glance(mdl_price_vs_conv) %>%
+  select(r.squared, adj.r.squared)
+
+mdl_price_vs_age %>%
+  glance(mdl_price_vs_age) %>%
+  select(r.squared, adj.r.squared)
+```
+
+### Inspecting One Model Per Category
+
+Let's run a linear model on different parts of the dataset separately and compare them.
+
+```{r}
+taiwan_0_to_15 <- taiwan_real_estate %>%
+  filter(house_age_years == "0 to 15")
+taiwan_15_to_30 <- taiwan_real_estate %>%
+  filter(house_age_years == "15 to 30")
+taiwan_30_to_45 <- taiwan_real_estate %>%
+  filter(house_age_years == "30 to 45")
+
+mdl_0_to_15 <- lm(price_twd_msq ~ n_convenience, data = taiwan_0_to_15)
+mdl_15_to_30 <- lm(price_twd_msq ~ n_convenience, data = taiwan_15_to_30)
+mdl_30_to_45 <- lm(price_twd_msq ~ n_convenience, data = taiwan_30_to_45)
+
+mdl_0_to_15
+mdl_15_to_30
+mdl_30_to_45
+```
+**Predicting Multiple Models**
+
+```{r}
+explanatory_data <- tibble(n_convenience = 0:10)
+
+prediction_data_0_to_15 <- explanatory_data %>%
+  mutate(price_twd_msq = predict(mdl_0_to_15, explanatory_data))
+
+prediction_data_15_to_30 <- explanatory_data %>%
+  mutate(price_twd_msq = predict(mdl_15_to_30, explanatory_data))
+
+prediction_data_30_to_45 <- explanatory_data %>%
+  mutate(price_twd_msq = predict(mdl_30_to_45, explanatory_data))
+```
+
+**Visualizing Multiple Model**
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq, color = house_age_years)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  geom_point(data = prediction_data_0_to_15, color = "green", size = 3, shape = 15) +
+  geom_point(data = prediction_data_15_to_30, color = "blue", size = 3, shape = 15) +
+  geom_point(data = prediction_data_30_to_45, color = "red", size = 3, shape = 15)
+
+
+
+```
+
+**Assessing Model Performance**
+
+```{r}
+# Coefficient of determination.
+mdl_price_vs_age %>% glance() %>% pull(r.squared)
+mdl_0_to_15 %>% glance() %>% pull(r.squared)
+mdl_15_to_30 %>% glance() %>% pull(r.squared)
+mdl_30_to_45 %>% glance() %>% pull(r.squared)
+```
+```{r}
+# RSE
+mdl_price_vs_age %>% glance() %>% pull(sigma)
+mdl_0_to_15 %>% glance() %>% pull(sigma)
+mdl_15_to_30 %>% glance() %>% pull(sigma)
+mdl_30_to_45 %>% glance() %>% pull(sigma)
+```
+### Interaction
+
+The effect of one explanatory variable on the expected response changes depending on the value of another explanatory variable.
+
+In R, interaction can be specified in two ways, implicit and explicit.
+
+Model Housing Price vs Number of convenience stores and Age of house to generate the interaction.
+
+```{r}
+# Implicit Interaction
+lm(price_twd_msq ~ n_convenience * house_age_years, data = taiwan_real_estate)
+# Explicit Interaction
+lm(price_twd_msq ~ n_convenience + house_age_years + n_convenience:house_age_years, data = taiwan_real_estate)
+```
+The model coefficients are same in each case. However, the coefficients are little tricky to interpret. The model can be reformulated to return more understandable coefficients.
+
+```{r}
+mdl_readable_inter <- lm(price_twd_msq ~ house_age_years + n_convenience:house_age_years + 0, data = taiwan_real_estate)
+mdl_readable_inter
+```
+**Predicting with Interactions**
+
+```{r}
+explanatory_data <- expand_grid(
+  n_convenience = 0:10,
+  house_age_years = unique(taiwan_real_estate$house_age_years)
+)
+prediction_data <- explanatory_data %>% 
+  mutate(
+    price_twd_msq = predict(mdl_readable_inter, explanatory_data)
+  )
+ggplot(taiwan_real_estate, aes(n_convenience, price_twd_msq, color = house_age_years)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  geom_point(data = prediction_data, size = 5, shape = 15)
+```
+### Simpson's Paradox
+
+Sometimes modelling a whole dataset suggest trends that disagrees with models on separate parts of that dataset.This is know as Simpson's Paradox.
+
+Let's use eBay auctions of Palm Pilot M515 PDA models dataset.
+
+```{r}
+glimpse(auctions)
+mdl_price_vs_openbid <- lm(price ~ openbid, data = auctions)
+mdl_price_vs_openbid
+ggplot(auctions, aes(openbid, price)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Let's model each auction type.
+
+```{r}
+mdl_price_vs_both <- lm(price ~ openbid * auction_type, data = auctions)
+mdl_price_vs_both
+ggplot(auctions, aes(openbid, price, color = auction_type)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+### 3D Visualization
+
+Let's plot two numeric explanatory variables.
+
+```{r}
+ggplot(taiwan_real_estate, aes(n_convenience, sqrt(dist_to_mrt_m), color = price_twd_msq)) + 
+  geom_point() + 
+  scale_color_viridis_c(option = "plasma")
+```
+**Modeling 2 numeric explanatory variable**
+
+```{r}
+mdl_price_vs_conv_dist <- lm(price_twd_msq ~ n_convenience + sqrt(dist_to_mrt_m), data = taiwan_real_estate)
+explanatory_data <- expand_grid(n_convenience = 0:10, dist_to_mrt_m = seq(0, 80, 10) ^ 2)
+prediction_data <- explanatory_data %>% 
+  mutate(price_twd_msq = predict(mdl_price_vs_conv_dist, explanatory_data))
+prediction_data
+ggplot(taiwan_real_estate,
+       aes(n_convenience, sqrt(dist_to_mrt_m), color = price_twd_msq)) + 
+  geom_point() + 
+  scale_color_viridis_c(option = "plasma") + 
+  geom_point(data = prediction_data, color = "yellow", size = 3)
+```
+
+**Include an Interaction**
+
+```{r}
+mdl_price_vs_conv_dist <- lm(price_twd_msq ~ n_convenience * sqrt(dist_to_mrt_m), data = taiwan_real_estate)
+explanatory_data <- expand_grid(n_convenience = 0:10, dist_to_mrt_m = seq(0, 80, 10) ^ 2)
+prediction_data <- explanatory_data %>% 
+  mutate(price_twd_msq = predict(mdl_price_vs_conv_dist, explanatory_data))
+
+ggplot(
+  taiwan_real_estate, 
+  aes(n_convenience, sqrt(dist_to_mrt_m), color = price_twd_msq)) + 
+  geom_point() + 
+  scale_color_viridis_c(option = "plasma") + 
+  geom_point(data = prediction_data, color = "yellow", size = 3)
+)
+```
+**Visualizing multiple variables**
+
+```{r}
+ggplot(taiwan_real_estate, aes(sqrt(dist_to_mrt_m), n_convenience, color = price_twd_msq)) +
+  geom_point() + 
+  scale_color_viridis_c(option = "plasma") + 
+  facet_wrap(vars(house_age_years))
+```
+
+### Different Levels of Interaction
+
+When number of explanatory variables increase, the number of options for specifying their interactions also increase. In case of 3 explanatory variables, we can specify,
+- no interactions 
+- 2-way interactions which provides model coefficients for each pair
+- three 2-way interactions and interaction between all three explanatory variables.
+
+```{r}
+# Modeling without any interactions
+mdl_price_vs_all_no_inter <- lm(price_twd_msq ~ n_convenience + I(sqrt(dist_to_mrt_m)) + house_age_years + 0, data = taiwan_real_estate)
+mdl_price_vs_all_no_inter
+
+# Modeling 3-way interactions
+mdl_price_vs_all_3_way_inter <- lm(price_twd_msq ~ sqrt(dist_to_mrt_m) * n_convenience * house_age_years + 0, data = taiwan_real_estate)
+mdl_price_vs_all_3_way_inter
+
+# Modeling 2-way interactions
+mdl_price_vs_all_2_way_inter <- lm(price_twd_msq ~ (I(sqrt(dist_to_mrt_m)) + n_convenience + house_age_years) ^2 + 0, data = taiwan_real_estate)
+mdl_price_vs_all_2_way_inter
+```
+**Predicting using 3-way predictions**
+
+```{r}
+explanatory_data <- expand_grid(dist_to_mrt_m = seq(0, 80, 10) ^ 2, 
+                                n_convenience = 0:10,
+                                house_age_years = unique(taiwan_real_estate$house_age_years))
+prediction_data <- explanatory_data %>% 
+  mutate(price_twd_msq = predict(mdl_price_vs_all_3_way_inter, explanatory_data))
+ggplot(
+  taiwan_real_estate, 
+  aes(sqrt(dist_to_mrt_m), n_convenience, color = price_twd_msq)
+) + 
+  geom_point() + 
+  scale_color_viridis_c(option = "plasma") + 
+  facet_wrap(vars(house_age_years)) + 
+  geom_point(data = prediction_data, size = 3, shape = 15)
+```
+
+
+
+## Logistic Regression
+
+Logistic distribution is a key to understanding Logistic Regression. Logistic distribution is a probability distribution of single continuous variable.
+The logistic distribution's CDF is calculated with the logistic function. The plot has a S-shape known as sigmoid curve. This function takes an input that can be any number from minus infinity to infinity and returns a value between zero and one.
+
+```{r}
+logistic_distn_cdf <- tibble(
+  x = seq(-10, 10, 0.1),
+  logistic_x = plogis(x),
+  logistic_x_man = 1 / (1 + exp(-1))
+)
+ggplot(logistic_distn_cdf, aes(x, logistic_x)) + 
+  geom_line()
+```
+The Logistic function transforms each x input value to a unique value. Transformations can be reversed. The logit function(or inverse logistic function) takes values between zero and one, and returns values between minus infinity and infinity.
+
+```{r}
+logistic_distn_inv_cdf <- tibble(
+  p = seq(0.001, 0.999, 0.001), 
+  logit_p = qlogis(p), 
+  logit_p_man = log(p / (1 - p))
+)
+ggplot(logistic_distn_inv_cdf, aes(p, logit_p)) + geom_line()
+```
+
+
+When the response variable is logical, all the points lie on lines : y = 0 and y = 1, making it difficult to see what's happening. This can be solved with a histogram of the explanatory variable, faceted on the response.
+
+Consider a Bank Churn dataset for financial services.
+
+```{r}
+head(churn)
+```
+
+Plot histograms for explanatory variables.
+
+```{r}
+ggplot(churn,
+       aes(time_since_last_purchase)) + 
+  geom_histogram(binwidth = 0.25) + 
+  facet_grid(rows = vars(has_churned))
+ggplot(churn,
+       aes(time_since_first_purchase)) + 
+  geom_histogram(binwidth = 0.25) + 
+  facet_grid(rows = vars(has_churned))
+```
+
+Let's Visualize linear and logistic regression for the model.
+
+```{r}
+plt_churn_vs_relationship <- ggplot(churn, aes(time_since_first_purchase, has_churned)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE, color = "red") + 
+  geom_smooth(
+    method = "glm",
+    se = FALSE,
+    method.args = list(family = binomial)
+  )
+plt_churn_vs_relationship
+```
+
+The two models provide similar predictions in most places however there is a slight curve in Logistic model trend.
+
+Linear Regression and Logistic Regression are special cases of a broader type of models called Generalized Linear Models(GLM). A Linear Regression makes the assumption that residuals follow a Gaussian distribution while Logistic regression assumes that residuals follow a binomial distribution.
+
+Fit a Logistic Regression Model.
+
+```{r}
+mdl_churn_vs_relationship <- glm(has_churned ~ time_since_first_purchase, data = churn, family = binomial)
+mdl_churn_vs_relationship
+```
+
+There are four main way of expressing the prediction from a Logistic Regression Model.
+**First** since the response variable is either "yes" or "no", we can make a prediction of the probability of a "yes".
+
+```{r}
+explanatory_data <- tibble(time_since_first_purchase = seq(-1.5, 0.75, 0.25))
+prediction_data <- explanatory_data %>% 
+  mutate(has_churned = predict(mdl_churn_vs_relationship,
+                               explanatory_data, type = "response"))
+
+prediction_data
+
+plt_churn_vs_relationship + geom_point(data = prediction_data, color = "yellow", size = 2)
+```
+**Second** As a Most likely Outcome. Rather than speaking in language of probability, we can say most likely outcome is...
+
+```{r}
+explanatory_data <- tibble(time_since_first_purchase = seq(-1.5, 0.75, 0.25))
+prediction_data <- explanatory_data %>% 
+  mutate(has_churned = predict(mdl_churn_vs_relationship,
+                               explanatory_data, type = "response"), 
+         most_likely_outcome = round(has_churned))
+prediction_data
+
+plt_churn_vs_relationship + geom_point(aes(y = most_likely_outcome), 
+                                       data = prediction_data, 
+                                       color = "yellow", 
+                                       size = 2)
+```
+**Third** Odds Ratio compare the probability of something happening with the probabilty of it not happening.
+
+```{r}
+prediction_data <- explanatory_data %>% 
+  mutate(
+    has_churned = predict(mdl_churn_vs_relationship,
+                          explanatory_data, type = "response"),
+    odds_ratio = has_churned / (1 - has_churned)
+  )
+prediction_data
+ggplot(prediction_data, aes(time_since_first_purchase, y = odds_ratio)) + 
+  geom_line() +
+  geom_hline(yintercept = 1, linetype = "dotted")
+```
+
+**Fourth** Log Odds Ratio has a linear relationship between predicted response and explanatory variable. That is unlike Odds ratio, as the explanatory variable changes, there is no any dramatic change in response metric - only linear changes.
+
+```{r}
+prediction_data <- explanatory_data %>%
+  mutate(
+    has_churned = predict(mdl_churn_vs_relationship, 
+                          explanatory_data, type = "response"), 
+    odds_ratio = has_churned / (1 - has_churned), 
+    log_odds_ratio = log(odds_ratio)
+  )
+prediction_data
+ggplot(prediction_data, aes(time_since_first_purchase, odds_ratio)) +
+  geom_line() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  scale_y_log10()
+```
+
+### Quantification of Logistic Regression
+
+**Confusion Matrix** is the basis of all performance metrics for models with a categorical response. It contains the counts of each actual response-predicted response pair. In the case of churn dataset, following are four overall outcomes:
+1. The customer churned and the model predicted that.(True Positive)
+2. The customer churned but the model didn't predict that.(False Negative)
+3. The customer didn't churn but the model predicted they did.(False Positive) 
+4. The customer didn't churn and the model predicted that.(True Negative)
+
+Three different performance metrics:
+
+**Accuracy** is the proportion of correct predictions.
+**Sensitivity** is the proportion of true positives.
+**Specificity** is the proportion of true negatives.
+
+```{r}
+# Confusion Matrix as a Table
+actual_response <- churn$has_churned
+predicted_response <- round(fitted(mdl_churn_vs_relationship))
+outcomes <- table(predicted_response, actual_response)
+outcomes
+# Plotting confusion matrix
+confusion <- conf_mat(outcomes)
+autoplot(confusion)
+# Get performance metrics for the confusion matrix
+summary(confusion, event_level = "second")
+```
+
+## Multiple Logistic Regression
+
+**Visualizing Multiple Explanatory Variables
+
+```{r}
+ggplot(churn, aes(time_since_first_purchase, 
+                  time_since_last_purchase, color = has_churned)) +
+  geom_point(alpha = 0.5) + 
+  scale_color_gradient2(midpoint = 0.5) + 
+  theme_bw()
+```
+**Fit a Logistic Regression Model with two explanatory variables, Make Predictions and Visualize**
+
+```{r}
+mdl_churn_vs_both_inter <- glm(has_churned ~ 
+                                 time_since_first_purchase * time_since_last_purchase, 
+                               data = churn, 
+                               family = binomial)
+mdl_churn_vs_both_inter
+
+explanatory_data <- expand_grid(
+  time_since_first_purchase = seq(-2, 4, 0.1), 
+  time_since_last_purchase = seq(-1, 6, 0.1)
+)
+prediction_data <- explanatory_data %>%
+  mutate(
+    has_churned = predict(mdl_churn_vs_both_inter, explanatory_data, type = "response")
+  )
+prediction_data
+ggplot(
+  churn, 
+  aes(time_since_first_purchase, time_since_last_purchase, color = has_churned)
+) + 
+  geom_point(alpha = 0.5) +
+  scale_color_gradient2(midpoint = 0.5) + 
+  theme_bw() + 
+  geom_point(data = prediction_data, size = 3, shape = 15)
+
+```
+
+### Confusion Matrix
+
+```{r}
+actual_response <- churn$has_churned
+predicted_response <- round(fitted(mdl_churn_vs_both_inter))
+outcomes <- table(predicted_response, actual_response)
+confusion <- conf_mat(outcomes)
+autoplot(confusion)
+summary(confusion, event_level = "second")
+```
+
+## Generalized Linear Regression
+
+
